@@ -10,9 +10,11 @@ const BRAND_ID = 'bellapond'
 interface Message {
   role: 'user' | 'assistant'
   content: string
+  displayContent?: string   // for typewriter effect
   products?: RecommendedProduct[]
-  imagePreview?: string   // data URL shown in the chat bubble
-  skinAnalysis?: string   // returned by backend vision model
+  imagePreview?: string
+  skinAnalysis?: string
+  isTyping?: boolean
 }
 
 interface RecommendedProduct {
@@ -30,7 +32,6 @@ const SUGGESTED_QUESTIONS = [
   'Help me with dark spots',
 ]
 
-// Module-level constant — keys are lowercase for case-insensitive lookup
 const PRODUCT_META: Record<string, { id: string; image: string }> = {
   'niacinamide 10% + zinc 1%':         { id: '1',  image: '/products/niacinamide-10-zinc-1.png' },
   'hyaluronic acid 2% + b5':           { id: '2',  image: '/products/hyaluronic-acid-2-b5.png' },
@@ -51,46 +52,55 @@ function lookupProduct(name: string) {
 }
 
 export default function ChatWidget() {
-  const [isOpen, setIsOpen]     = useState(false)
-  const [hasOpened, setHasOpened] = useState(false)
-  const [messages, setMessages] = useState<Message[]>([
+  const [isOpen, setIsOpen]               = useState(false)
+  const [messages, setMessages]           = useState<Message[]>([
     {
       role: 'assistant',
       content: "Hi! I'm Bella, your personal skincare advisor. Tell me about your skin type or concern and I'll find the perfect products for you. ✨",
+      displayContent: "Hi! I'm Bella, your personal skincare advisor. Tell me about your skin type or concern and I'll find the perfect products for you. ✨",
     },
   ])
-  const [input, setInput]         = useState('')
-  const [loading, setLoading]     = useState(false)
-  const [error, setError]         = useState<string | null>(null)
-  const [imageFile, setImageFile] = useState<File | null>(null)
-  const [imagePreview, setImagePreview] = useState<string | null>(null)
-  const bottomRef                 = useRef<HTMLDivElement>(null)
-  const inputRef                  = useRef<HTMLInputElement>(null)
-  const fileInputRef              = useRef<HTMLInputElement>(null)
+  const [input, setInput]                 = useState('')
+  const [loading, setLoading]             = useState(false)
+  const [error, setError]                 = useState<string | null>(null)
+  const [imageFile, setImageFile]         = useState<File | null>(null)
+  const [imagePreview, setImagePreview]   = useState<string | null>(null)
+  const [isHovered, setIsHovered]         = useState(false)
+  const bottomRef                         = useRef<HTMLDivElement>(null)
+  const inputRef                          = useRef<HTMLInputElement>(null)
+  const fileInputRef                      = useRef<HTMLInputElement>(null)
 
   // Auto-open after 3 seconds
   useEffect(() => {
-    const timer = setTimeout(() => {
-      setIsOpen(true)
-      setHasOpened(true)
-    }, 3000)
+    const timer = setTimeout(() => setIsOpen(true), 3000)
     return () => clearTimeout(timer)
   }, [])
 
-  // Scroll to bottom on new message
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, loading])
 
-  // Focus input when chat opens
   useEffect(() => {
-    if (isOpen) setTimeout(() => inputRef.current?.focus(), 300)
+    if (isOpen) setTimeout(() => inputRef.current?.focus(), 400)
   }, [isOpen])
+
+  // Typewriter effect
+  const typeMessage = (fullText: string, msgIndex: number) => {
+    let i = 0
+    const interval = setInterval(() => {
+      i++
+      setMessages(prev => prev.map((m, idx) =>
+        idx === msgIndex
+          ? { ...m, displayContent: fullText.slice(0, i), isTyping: i < fullText.length }
+          : m
+      ))
+      if (i >= fullText.length) clearInterval(interval)
+    }, 18)
+  }
 
   const buildHistory = () =>
     messages.map((m) => ({ role: m.role, content: m.content }))
 
-  // Resize to max 800px and compress to JPEG ~75% — keeps payload under ~150 KB
   const compressImage = (file: File): Promise<string> =>
     new Promise((resolve, reject) => {
       const img = new window.Image()
@@ -99,23 +109,16 @@ export default function ChatWidget() {
         const MAX = 800
         let { width, height } = img
         if (width > MAX || height > MAX) {
-          if (width > height) {
-            height = Math.round((height * MAX) / width)
-            width = MAX
-          } else {
-            width = Math.round((width * MAX) / height)
-            height = MAX
-          }
+          if (width > height) { height = Math.round((height * MAX) / width); width = MAX }
+          else { width = Math.round((width * MAX) / height); height = MAX }
         }
         const canvas = document.createElement('canvas')
-        canvas.width = width
-        canvas.height = height
+        canvas.width = width; canvas.height = height
         const ctx = canvas.getContext('2d')
         if (!ctx) { reject(new Error('Canvas not supported')); return }
         ctx.drawImage(img, 0, 0, width, height)
         URL.revokeObjectURL(objectUrl)
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.75)
-        resolve(dataUrl.split(',')[1]) // return raw base64 only
+        resolve(canvas.toDataURL('image/jpeg', 0.75).split(',')[1])
       }
       img.onerror = reject
       img.src = objectUrl
@@ -125,9 +128,7 @@ export default function ChatWidget() {
     const file = e.target.files?.[0]
     if (!file) return
     setImageFile(file)
-    const url = URL.createObjectURL(file)
-    setImagePreview(url)
-    // Reset so the same file can be re-selected
+    setImagePreview(URL.createObjectURL(file))
     e.target.value = ''
   }
 
@@ -137,29 +138,28 @@ export default function ChatWidget() {
     setImagePreview(null)
   }
 
-  const sendMessage = async (text: string, file?: File | null, preview?: string | null) => {
+  const sendMessage = async (text: string) => {
     const trimmed = text.trim()
-    const hasImage = !!(file ?? imageFile)
-    if (!trimmed && !hasImage || loading) return
+    const hasImage = !!imageFile
+    if ((!trimmed && !hasImage) || loading) return
 
-    const currentFile    = file    !== undefined ? file    : imageFile
-    const currentPreview = preview !== undefined ? preview : imagePreview
+    const currentFile    = imageFile
+    const currentPreview = imagePreview
 
     setError(null)
     setInput('')
     clearImage()
 
-    const userMsg: Message = {
+    setMessages(prev => [...prev, {
       role: 'user',
       content: trimmed || '(skin photo)',
+      displayContent: trimmed || '(skin photo)',
       imagePreview: currentPreview ?? undefined,
-    }
-    setMessages((prev) => [...prev, userMsg])
+    }])
     setLoading(true)
 
     try {
       const image_base64 = currentFile ? await compressImage(currentFile) : undefined
-
       const res = await fetch(`${RECOBOT_URL}/api/chat/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -174,22 +174,22 @@ export default function ChatWidget() {
       if (!res.ok) throw new Error(`Server error: ${res.status}`)
       const data = await res.json()
 
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: 'assistant',
-          content: data.response,
-          products: data.retrieved_products?.slice(0, 3) ?? [],
-          skinAnalysis: data.skin_analysis ?? undefined,
-        },
-      ])
+      const newMsgIndex = messages.length + 1
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: data.response,
+        displayContent: '',
+        products: data.retrieved_products?.slice(0, 3) ?? [],
+        skinAnalysis: data.skin_analysis ?? undefined,
+        isTyping: true,
+      }])
+
+      setTimeout(() => typeMessage(data.response, newMsgIndex), 100)
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : ''
-      if (msg.includes('Server error: 5') || msg.includes('Server error: 4')) {
-        setError(`Bella hit an error (${msg}). The server is running but something went wrong — check the server logs.`)
-      } else {
-        setError('Could not reach Bella. Make sure the RecoBot server is running: cd recobot-ai && uvicorn backend.app:app --reload')
-      }
+      setError(msg.includes('Server error:')
+        ? `Server error — check Railway logs.`
+        : 'Could not reach Bella. Make sure the backend is running.')
     } finally {
       setLoading(false)
     }
@@ -200,140 +200,297 @@ export default function ChatWidget() {
     sendMessage(input)
   }
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      sendMessage(input)
-    }
-  }
-
-  const toggleOpen = () => {
-    setIsOpen((v) => !v)
-    if (!hasOpened) setHasOpened(true)
-  }
-
   return (
-    <div className="fixed bottom-0 right-6 z-50 flex flex-col items-stretch w-[370px] max-w-[calc(100vw-1.5rem)]">
+    <>
+      <style>{`
+        @keyframes bellaFloat {
+          0%, 100% { transform: translateY(0px); }
+          50% { transform: translateY(-6px); }
+        }
+        @keyframes bellaPulse {
+          0%, 100% { box-shadow: 0 0 0 0 rgba(139,92,246,0.4), 0 8px 32px rgba(0,0,0,0.35); }
+          50% { box-shadow: 0 0 0 8px rgba(139,92,246,0), 0 8px 32px rgba(0,0,0,0.35); }
+        }
+        @keyframes bellaGradientBorder {
+          0% { background-position: 0% 50%; }
+          50% { background-position: 100% 50%; }
+          100% { background-position: 0% 50%; }
+        }
+        @keyframes bellaDot {
+          0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+          40% { transform: scale(1); opacity: 1; }
+        }
+        @keyframes bellaCursor {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0; }
+        }
+        @keyframes bellaFadeUp {
+          from { opacity: 0; transform: translateY(8px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes bellaOrb {
+          0%, 100% { transform: translate(0,0) scale(1); }
+          33% { transform: translate(10px,-10px) scale(1.05); }
+          66% { transform: translate(-8px,6px) scale(0.95); }
+        }
+        .bella-widget-collapsed {
+          animation: bellaFloat 4s ease-in-out infinite, bellaPulse 2.5s ease-in-out infinite;
+        }
+        .bella-widget-collapsed:hover {
+          animation: none;
+          box-shadow: 0 0 0 2px rgba(139,92,246,0.6), 0 0 24px rgba(139,92,246,0.4), 0 8px 32px rgba(0,0,0,0.4) !important;
+          transform: scale(1.03);
+        }
+        .bella-gradient-border {
+          background: linear-gradient(135deg, rgba(139,92,246,0.8), rgba(59,130,246,0.8), rgba(236,72,153,0.6), rgba(139,92,246,0.8));
+          background-size: 300% 300%;
+          animation: bellaGradientBorder 4s ease infinite;
+        }
+        .bella-cursor::after {
+          content: '|';
+          animation: bellaCursor 0.8s step-end infinite;
+          color: rgba(167,139,250,0.9);
+          margin-left: 1px;
+        }
+        .bella-msg-in {
+          animation: bellaFadeUp 0.3s ease forwards;
+        }
+        .bella-orb {
+          animation: bellaOrb 8s ease-in-out infinite;
+        }
+        .bella-dot-1 { animation: bellaDot 1.4s ease-in-out 0s infinite; }
+        .bella-dot-2 { animation: bellaDot 1.4s ease-in-out 0.2s infinite; }
+        .bella-dot-3 { animation: bellaDot 1.4s ease-in-out 0.4s infinite; }
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(139,92,246,0.3); border-radius: 2px; }
+      `}</style>
 
-      {/* ── CHAT PANEL ─────────────────────────────────── */}
-      <div
-        className={`flex flex-col bg-white border border-ink-100/60 border-b-0 overflow-hidden transition-all duration-500 ease-smooth rounded-t-2xl
-          ${isOpen ? 'max-h-[540px] shadow-float opacity-100' : 'max-h-0 opacity-0 pointer-events-none'}`}
-      >
-        {/* Header */}
-        <div className="relative flex flex-col px-5 pt-5 pb-4 bg-ink-900 flex-shrink-0 overflow-hidden">
-          {/* Warm glow blob */}
-          <div className="absolute -top-8 -right-8 w-32 h-32 rounded-full bg-amber-400/10 blur-2xl pointer-events-none" />
-          <div className="absolute -bottom-6 -left-4 w-24 h-24 rounded-full bg-cream-300/10 blur-2xl pointer-events-none" />
+      <div style={{
+        position: 'fixed',
+        bottom: '24px',
+        right: '24px',
+        zIndex: 9999,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'flex-end',
+        gap: '12px',
+        fontFamily: "'Inter', -apple-system, sans-serif",
+      }}>
 
-          {/* Top row: avatar + name + controls */}
-          <div className="relative flex items-center gap-3 mb-3">
-            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-amber-200 to-cream-300 flex items-center justify-center flex-shrink-0 shadow-sm">
-              <SparkleIcon />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-bold text-white leading-none tracking-wide">Bella AI</p>
-              <div className="flex items-center gap-1.5 mt-0.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
-                <span className="text-[10px] text-ink-400 tracking-wide">Online · Skincare Advisor</span>
+        {/* ── EXPANDED PANEL ──────────────────────────────── */}
+        <div style={{
+          width: isOpen ? '380px' : '0px',
+          maxWidth: 'calc(100vw - 48px)',
+          height: isOpen ? '580px' : '0px',
+          opacity: isOpen ? 1 : 0,
+          pointerEvents: isOpen ? 'auto' : 'none',
+          transition: 'all 0.35s cubic-bezier(0.34, 1.56, 0.64, 1)',
+          display: 'flex',
+          flexDirection: 'column',
+          borderRadius: '20px',
+          overflow: 'hidden',
+          background: 'rgba(10, 8, 20, 0.82)',
+          backdropFilter: 'blur(20px)',
+          WebkitBackdropFilter: 'blur(20px)',
+          border: '1px solid rgba(139,92,246,0.25)',
+          boxShadow: '0 8px 32px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.05), inset 0 1px 0 rgba(255,255,255,0.08)',
+        }}>
+
+          {/* Gradient border top */}
+          <div className="bella-gradient-border" style={{ height: '2px', flexShrink: 0 }} />
+
+          {/* Header */}
+          <div style={{
+            position: 'relative',
+            padding: '16px 18px 14px',
+            flexShrink: 0,
+            overflow: 'hidden',
+          }}>
+            {/* Ambient orbs */}
+            <div className="bella-orb" style={{
+              position: 'absolute', top: '-20px', right: '-20px',
+              width: '100px', height: '100px', borderRadius: '50%',
+              background: 'radial-gradient(circle, rgba(139,92,246,0.25) 0%, transparent 70%)',
+              pointerEvents: 'none',
+            }} />
+            <div style={{
+              position: 'absolute', bottom: '-30px', left: '20px',
+              width: '80px', height: '80px', borderRadius: '50%',
+              background: 'radial-gradient(circle, rgba(59,130,246,0.15) 0%, transparent 70%)',
+              pointerEvents: 'none',
+            }} />
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', position: 'relative' }}>
+              {/* Avatar */}
+              <div style={{
+                width: '38px', height: '38px', borderRadius: '12px', flexShrink: 0,
+                background: 'linear-gradient(135deg, #7c3aed, #4f46e5)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                boxShadow: '0 0 16px rgba(124,58,237,0.5)',
+              }}>
+                <NeuralIcon />
               </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ fontSize: '14px', fontWeight: 700, color: '#f5f3ff', letterSpacing: '0.01em' }}>
+                    Bella AI
+                  </span>
+                  <span style={{
+                    fontSize: '10px', fontWeight: 600, padding: '2px 7px', borderRadius: '20px',
+                    background: 'rgba(139,92,246,0.2)', color: '#a78bfa',
+                    border: '1px solid rgba(139,92,246,0.3)', letterSpacing: '0.05em',
+                  }}>SKINCARE</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '5px', marginTop: '2px' }}>
+                  <span style={{
+                    width: '6px', height: '6px', borderRadius: '50%',
+                    background: '#34d399',
+                    boxShadow: '0 0 6px #34d399',
+                    display: 'inline-block',
+                  }} />
+                  <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.45)', letterSpacing: '0.03em' }}>
+                    Online · Science-backed advisor
+                  </span>
+                </div>
+              </div>
+              {/* Minimize */}
+              <button onClick={() => setIsOpen(false)} style={{
+                width: '28px', height: '28px', borderRadius: '8px', border: 'none', cursor: 'pointer',
+                background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.5)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                transition: 'all 0.2s',
+              }}
+              onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,255,255,0.12)'; (e.currentTarget as HTMLButtonElement).style.color = '#fff' }}
+              onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,255,255,0.06)'; (e.currentTarget as HTMLButtonElement).style.color = 'rgba(255,255,255,0.5)' }}
+              >
+                <MinimizeIcon />
+              </button>
             </div>
-            {/* Minimize button */}
-            <button
-              onClick={() => setIsOpen(false)}
-              aria-label="Minimize chat"
-              className="w-7 h-7 flex items-center justify-center rounded-full bg-ink-800 hover:bg-ink-700 text-ink-400 hover:text-white transition-colors"
-            >
-              <MinimizeIcon />
-            </button>
           </div>
 
-          {/* Tagline */}
-          <p className="relative font-serif text-xl font-bold text-cream-100 leading-snug tracking-tight">
-            What are we<br />
-            <span className="text-amber-200">feeling today?</span>
-          </p>
-        </div>
+          {/* Divider */}
+          <div style={{ height: '1px', background: 'rgba(255,255,255,0.06)', flexShrink: 0 }} />
 
-        {/* Messages */}
-        <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3 min-h-0 bg-white">
-          {messages.map((msg, i) => (
-            <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-              <div className={`max-w-[85%] ${msg.role === 'user' ? '' : 'w-full'}`}>
-                {/* Uploaded image (user bubble only) */}
+          {/* Messages */}
+          <div style={{
+            flex: 1, overflowY: 'auto', padding: '16px',
+            display: 'flex', flexDirection: 'column', gap: '12px',
+          }}>
+            {messages.map((msg, i) => (
+              <div key={i} className="bella-msg-in" style={{
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: msg.role === 'user' ? 'flex-end' : 'flex-start',
+              }}>
+                {/* Image preview */}
                 {msg.role === 'user' && msg.imagePreview && (
-                  <div className="mb-1.5 rounded-xl overflow-hidden border border-ink-700 w-36 h-36 relative ml-auto">
+                  <div style={{
+                    width: '120px', height: '120px', borderRadius: '12px', overflow: 'hidden',
+                    marginBottom: '6px', border: '1px solid rgba(139,92,246,0.3)',
+                  }}>
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={msg.imagePreview}
-                      alt="Uploaded skin photo"
-                      className="w-full h-full object-cover"
-                    />
+                    <img src={msg.imagePreview} alt="Skin photo" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                   </div>
                 )}
 
                 {/* Bubble */}
-                <div
-                  className={`px-3.5 py-2.5 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap
-                    ${msg.role === 'user'
-                      ? 'bg-ink-900 text-white rounded-br-sm'
-                      : 'bg-cream-50 text-ink-800 border border-cream-200/80 rounded-bl-sm'
-                    }`}
-                >
-                  {msg.content}
+                <div style={{
+                  maxWidth: '85%',
+                  padding: '10px 14px',
+                  borderRadius: msg.role === 'user' ? '16px 16px 4px 16px' : '16px 16px 16px 4px',
+                  fontSize: '13px', lineHeight: '1.6',
+                  whiteSpace: 'pre-wrap',
+                  ...(msg.role === 'user' ? {
+                    background: 'linear-gradient(135deg, #7c3aed, #4f46e5)',
+                    color: '#fff',
+                    boxShadow: '0 4px 15px rgba(124,58,237,0.35)',
+                  } : {
+                    background: 'rgba(255,255,255,0.06)',
+                    color: 'rgba(255,255,255,0.88)',
+                    border: '1px solid rgba(255,255,255,0.08)',
+                    width: '100%',
+                  }),
+                }}>
+                  {msg.role === 'assistant' ? (
+                    <span className={msg.isTyping ? 'bella-cursor' : ''}>
+                      {msg.displayContent ?? msg.content}
+                    </span>
+                  ) : (
+                    msg.displayContent ?? msg.content
+                  )}
                 </div>
 
-                {/* Skin analysis badge (assistant only, when triggered by photo) */}
-                {msg.role === 'assistant' && msg.skinAnalysis && (
-                  <div className="mt-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-xl text-[11px] text-amber-800 leading-relaxed">
-                    <span className="font-semibold block mb-0.5">Skin Analysis</span>
+                {/* Skin analysis badge */}
+                {msg.role === 'assistant' && msg.skinAnalysis && !msg.isTyping && (
+                  <div style={{
+                    marginTop: '8px', padding: '10px 12px', borderRadius: '12px', width: '100%',
+                    background: 'rgba(139,92,246,0.1)', border: '1px solid rgba(139,92,246,0.25)',
+                    fontSize: '11px', color: 'rgba(167,139,250,0.9)', lineHeight: '1.5',
+                  }}>
+                    <div style={{ fontWeight: 700, marginBottom: '3px', letterSpacing: '0.05em', fontSize: '10px', color: '#a78bfa' }}>
+                      SKIN ANALYSIS
+                    </div>
                     {msg.skinAnalysis}
                   </div>
                 )}
 
-                {/* Recommended product cards */}
-                {msg.role === 'assistant' && msg.products && msg.products.length > 0 && (
-                  <div className="mt-2.5 space-y-2">
-                    <p className="text-[10px] font-semibold tracking-widest uppercase text-ink-400 px-0.5">
+                {/* Product cards */}
+                {msg.role === 'assistant' && msg.products && msg.products.length > 0 && !msg.isTyping && (
+                  <div style={{ marginTop: '10px', width: '100%', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.1em', color: 'rgba(167,139,250,0.7)', textTransform: 'uppercase' }}>
                       Recommended for you
-                    </p>
+                    </div>
                     {msg.products.map((product, pi) => {
                       const meta  = lookupProduct(product.name)
                       const href  = meta ? `/products/${meta.id}` : '/products'
                       const image = meta?.image ?? null
-
                       return (
-                        <Link
-                          key={pi}
-                          href={href}
-                          className="flex items-center gap-3 p-2.5 bg-white border border-cream-200 rounded-xl hover:border-cream-400 hover:shadow-card transition-all duration-200 group"
-                        >
-                          <div className="relative w-16 h-16 flex-shrink-0 rounded-lg overflow-hidden bg-cream-100 border border-cream-200/60">
+                        <Link key={pi} href={href} style={{
+                          display: 'flex', alignItems: 'center', gap: '10px',
+                          padding: '10px', borderRadius: '14px', textDecoration: 'none',
+                          background: 'rgba(255,255,255,0.04)',
+                          border: '1px solid rgba(255,255,255,0.08)',
+                          transition: 'all 0.2s',
+                        }}
+                        onMouseEnter={e => {
+                          const el = e.currentTarget as HTMLAnchorElement
+                          el.style.background = 'rgba(139,92,246,0.12)'
+                          el.style.borderColor = 'rgba(139,92,246,0.35)'
+                          el.style.boxShadow = '0 0 16px rgba(139,92,246,0.15)'
+                        }}
+                        onMouseLeave={e => {
+                          const el = e.currentTarget as HTMLAnchorElement
+                          el.style.background = 'rgba(255,255,255,0.04)'
+                          el.style.borderColor = 'rgba(255,255,255,0.08)'
+                          el.style.boxShadow = 'none'
+                        }}>
+                          <div style={{
+                            width: '52px', height: '52px', borderRadius: '10px', overflow: 'hidden',
+                            flexShrink: 0, background: 'rgba(255,255,255,0.06)',
+                            border: '1px solid rgba(255,255,255,0.08)', position: 'relative',
+                          }}>
                             {image ? (
-                              <Image
-                                src={image}
-                                alt={product.name}
-                                fill
-                                className="object-cover group-hover:scale-105 transition-transform duration-300"
-                                sizes="64px"
-                              />
+                              <Image src={image} alt={product.name} fill className="object-cover" sizes="52px" />
                             ) : (
-                              <div className="w-full h-full flex items-center justify-center text-ink-300">
+                              <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'rgba(255,255,255,0.2)' }}>
                                 <PlaceholderIcon />
                               </div>
                             )}
                           </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-xs font-serif font-bold text-ink-900 leading-snug group-hover:text-sand-300 transition-colors line-clamp-2">
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: '12px', fontWeight: 600, color: '#f5f3ff', lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                               {product.name}
-                            </p>
-                            <p className="text-[10px] text-ink-400 capitalize mt-0.5">{product.category}</p>
-                            <div className="flex items-center justify-between mt-1.5">
-                              <span className="text-sm font-bold text-ink-900">
+                            </div>
+                            <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.4)', marginTop: '2px', textTransform: 'capitalize' }}>
+                              {product.category}
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '4px' }}>
+                              <span style={{ fontSize: '13px', fontWeight: 700, color: '#a78bfa' }}>
                                 ${Number(product.price).toFixed(2)}
                               </span>
-                              <span className="text-[10px] font-semibold text-cream-500 flex items-center gap-0.5 group-hover:gap-1.5 transition-all">
-                                View <ChevronIcon />
+                              <span style={{ fontSize: '10px', color: 'rgba(167,139,250,0.6)', display: 'flex', alignItems: 'center', gap: '2px' }}>
+                                View →
                               </span>
                             </div>
                           </div>
@@ -343,159 +500,229 @@ export default function ChatWidget() {
                   </div>
                 )}
               </div>
-            </div>
-          ))}
+            ))}
 
-          {/* Loading dots */}
-          {loading && (
-            <div className="flex justify-start">
-              <div className="px-4 py-3 bg-cream-50 border border-cream-200/80 rounded-2xl rounded-bl-sm">
-                <div className="flex gap-1.5 items-center">
-                  {[0, 1, 2].map((i) => (
-                    <span
-                      key={i}
-                      className="w-1.5 h-1.5 rounded-full bg-ink-400 animate-bounce"
-                      style={{ animationDelay: `${i * 0.15}s` }}
-                    />
+            {/* Loading */}
+            {loading && (
+              <div className="bella-msg-in" style={{ display: 'flex', alignItems: 'flex-start' }}>
+                <div style={{
+                  padding: '12px 16px', borderRadius: '16px 16px 16px 4px',
+                  background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.08)',
+                  display: 'flex', gap: '5px', alignItems: 'center',
+                }}>
+                  {[0,1,2].map(i => (
+                    <span key={i} className={`bella-dot-${i+1}`} style={{
+                      width: '7px', height: '7px', borderRadius: '50%',
+                      background: 'rgba(139,92,246,0.8)', display: 'inline-block',
+                    }} />
                   ))}
                 </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {/* Error */}
-          {error && (
-            <div className="px-3 py-2.5 bg-red-50 border border-red-200 rounded-xl text-xs text-red-600 leading-relaxed">
-              {error}
-            </div>
-          )}
+            {/* Error */}
+            {error && (
+              <div style={{
+                padding: '10px 13px', borderRadius: '12px', fontSize: '12px',
+                background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.25)',
+                color: 'rgba(252,165,165,0.9)', lineHeight: 1.5,
+              }}>
+                {error}
+              </div>
+            )}
 
-          <div ref={bottomRef} />
-        </div>
-
-        {/* Suggested questions — only show at start */}
-        {messages.length === 1 && !loading && (
-          <div className="px-4 pb-3 flex flex-wrap gap-1.5 flex-shrink-0 bg-white">
-            {SUGGESTED_QUESTIONS.map((q) => (
-              <button
-                key={q}
-                onClick={() => sendMessage(q)}
-                className="text-[11px] px-3 py-1.5 rounded-full border border-cream-300 bg-cream-50 text-ink-700 hover:bg-cream-200 hover:border-cream-400 transition-colors"
-              >
-                {q}
-              </button>
-            ))}
+            <div ref={bottomRef} />
           </div>
-        )}
 
-        {/* Image preview strip */}
-        {imagePreview && (
-          <div className="px-3 pt-2 pb-0 bg-white flex-shrink-0 flex items-center gap-2">
-            <div className="relative w-14 h-14 rounded-lg overflow-hidden border border-cream-300 flex-shrink-0">
+          {/* Suggested questions */}
+          {messages.length === 1 && !loading && (
+            <div style={{
+              padding: '0 16px 12px', display: 'flex', flexWrap: 'wrap', gap: '6px', flexShrink: 0,
+            }}>
+              {SUGGESTED_QUESTIONS.map(q => (
+                <button key={q} onClick={() => sendMessage(q)} style={{
+                  fontSize: '11px', padding: '6px 12px', borderRadius: '20px', cursor: 'pointer',
+                  background: 'rgba(139,92,246,0.1)', border: '1px solid rgba(139,92,246,0.25)',
+                  color: 'rgba(167,139,250,0.9)', transition: 'all 0.2s', letterSpacing: '0.01em',
+                }}
+                onMouseEnter={e => {
+                  const el = e.currentTarget as HTMLButtonElement
+                  el.style.background = 'rgba(139,92,246,0.25)'
+                  el.style.borderColor = 'rgba(139,92,246,0.5)'
+                }}
+                onMouseLeave={e => {
+                  const el = e.currentTarget as HTMLButtonElement
+                  el.style.background = 'rgba(139,92,246,0.1)'
+                  el.style.borderColor = 'rgba(139,92,246,0.25)'
+                }}>
+                  {q}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Image preview */}
+          {imagePreview && (
+            <div style={{
+              margin: '0 16px 8px', padding: '8px 10px', borderRadius: '12px',
+              background: 'rgba(139,92,246,0.08)', border: '1px solid rgba(139,92,246,0.2)',
+              display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0,
+            }}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={imagePreview} alt="Preview" className="w-full h-full object-cover" />
+              <img src={imagePreview} alt="Preview" style={{ width: '40px', height: '40px', borderRadius: '8px', objectFit: 'cover', flexShrink: 0 }} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: '11px', color: 'rgba(167,139,250,0.9)', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {imageFile?.name}
+                </div>
+                <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.3)', marginTop: '1px' }}>
+                  Photo ready to analyze
+                </div>
+              </div>
+              <button onClick={clearImage} style={{
+                width: '22px', height: '22px', borderRadius: '50%', border: 'none', cursor: 'pointer',
+                background: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.5)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                fontSize: '14px', lineHeight: 1,
+              }}>×</button>
             </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-[11px] text-ink-600 font-medium truncate">{imageFile?.name}</p>
-              <p className="text-[10px] text-ink-400">Photo ready to send</p>
-            </div>
-            <button
-              type="button"
-              onClick={clearImage}
-              className="w-6 h-6 flex items-center justify-center rounded-full bg-ink-100 hover:bg-red-100 text-ink-400 hover:text-red-500 transition-colors flex-shrink-0"
-              aria-label="Remove image"
-            >
-              <RemoveIcon />
-            </button>
-          </div>
-        )}
+          )}
 
-        {/* Input */}
-        <form
-          onSubmit={handleSubmit}
-          className="flex items-center gap-2 px-3 py-3 border-t border-ink-100 bg-white flex-shrink-0"
-        >
-          {/* Hidden file input */}
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            onChange={handleImageSelect}
-            className="hidden"
-          />
+          {/* Input */}
+          <div style={{
+            padding: '12px 16px 16px', flexShrink: 0,
+            borderTop: '1px solid rgba(255,255,255,0.06)',
+          }}>
+            <input ref={fileInputRef} type="file" accept="image/*" onChange={handleImageSelect} style={{ display: 'none' }} />
+            <form onSubmit={handleSubmit} style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              {/* Camera */}
+              <button type="button" onClick={() => fileInputRef.current?.click()} disabled={loading} style={{
+                width: '38px', height: '38px', borderRadius: '11px', border: 'none', cursor: 'pointer', flexShrink: 0,
+                background: imagePreview ? 'rgba(139,92,246,0.25)' : 'rgba(255,255,255,0.06)',
+                border: imagePreview ? '1px solid rgba(139,92,246,0.5)' : '1px solid rgba(255,255,255,0.08)',
+                color: imagePreview ? '#a78bfa' : 'rgba(255,255,255,0.4)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                transition: 'all 0.2s',
+              } as React.CSSProperties}>
+                <CameraIcon />
+              </button>
 
-          {/* Camera / upload button */}
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={loading}
-            aria-label="Upload skin photo"
-            className={`w-9 h-9 flex-shrink-0 flex items-center justify-center rounded-xl border transition-all
-              ${imagePreview
-                ? 'border-amber-300 bg-amber-50 text-amber-600'
-                : 'border-ink-150 bg-ink-50 text-ink-400 hover:bg-cream-100 hover:text-ink-700'
-              } disabled:opacity-40`}
-          >
-            <CameraIcon />
-          </button>
+              {/* Text input */}
+              <input
+                ref={inputRef}
+                type="text"
+                value={input}
+                onChange={e => setInput(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(input) } }}
+                placeholder={imagePreview ? 'Describe your concern (optional)…' : 'Tell me what you\'re looking for…'}
+                disabled={loading}
+                style={{
+                  flex: 1, height: '38px', borderRadius: '11px', border: 'none', outline: 'none',
+                  background: 'rgba(255,255,255,0.06)',
+                  border: '1px solid rgba(255,255,255,0.08)',
+                  color: '#f5f3ff', fontSize: '13px', padding: '0 14px',
+                  transition: 'all 0.2s',
+                } as React.CSSProperties}
+                onFocus={e => {
+                  e.currentTarget.style.background = 'rgba(255,255,255,0.09)'
+                  e.currentTarget.style.borderColor = 'rgba(139,92,246,0.5)'
+                  e.currentTarget.style.boxShadow = '0 0 0 3px rgba(139,92,246,0.1)'
+                }}
+                onBlur={e => {
+                  e.currentTarget.style.background = 'rgba(255,255,255,0.06)'
+                  e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)'
+                  e.currentTarget.style.boxShadow = 'none'
+                }}
+              />
 
-          <input
-            ref={inputRef}
-            type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder={imagePreview ? 'Describe your concern (optional)…' : 'Ask about your skin concern…'}
-            disabled={loading}
-            className="flex-1 text-sm px-3 py-2 rounded-xl border border-ink-150 bg-ink-50 text-ink-900 placeholder-ink-400 focus:outline-none focus:border-cream-300 focus:bg-white transition-colors disabled:opacity-60"
-          />
-          <button
-            type="submit"
-            disabled={(!input.trim() && !imagePreview) || loading}
-            className="w-9 h-9 flex-shrink-0 flex items-center justify-center rounded-xl bg-ink-900 text-white hover:bg-ink-700 disabled:opacity-40 disabled:cursor-not-allowed transition-all active:scale-95"
-            aria-label="Send"
-          >
-            <SendIcon />
-          </button>
-        </form>
-      </div>
-
-      {/* ── TAB (always visible) ────────────────────────── */}
-      <button
-        onClick={toggleOpen}
-        aria-label={isOpen ? 'Minimize Bella AI' : 'Open Bella AI'}
-        className={`flex items-center justify-between w-full px-4 py-3 bg-ink-900 hover:bg-ink-800 transition-all duration-300 group
-          ${isOpen ? 'border-t border-ink-700' : 'rounded-t-2xl shadow-float'}`}
-      >
-        {/* Left: avatar + text */}
-        <div className="flex items-center gap-2.5">
-          <div className="w-7 h-7 rounded-full bg-gradient-to-br from-amber-200 to-cream-300 flex items-center justify-center flex-shrink-0">
-            <SparkleIcon small />
-          </div>
-          <div className="text-left">
-            <p className="text-sm font-bold text-white leading-none tracking-wide">Bella AI</p>
-            <p className="text-[10px] text-ink-400 mt-0.5 tracking-wide">
-              {isOpen ? 'Tap to minimise' : 'What are we feeling today?'}
-            </p>
+              {/* Send */}
+              <button type="submit" disabled={(!input.trim() && !imagePreview) || loading} style={{
+                width: '38px', height: '38px', borderRadius: '11px', border: 'none', cursor: 'pointer', flexShrink: 0,
+                background: (!input.trim() && !imagePreview) || loading
+                  ? 'rgba(255,255,255,0.06)'
+                  : 'linear-gradient(135deg, #7c3aed, #4f46e5)',
+                color: (!input.trim() && !imagePreview) || loading ? 'rgba(255,255,255,0.25)' : '#fff',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                transition: 'all 0.2s',
+                boxShadow: (!input.trim() && !imagePreview) || loading ? 'none' : '0 4px 15px rgba(124,58,237,0.4)',
+              }}>
+                <SendIcon />
+              </button>
+            </form>
           </div>
         </div>
 
-        {/* Right: chevron */}
-        <span className={`text-ink-400 group-hover:text-white transition-all duration-300 ${isOpen ? 'rotate-180' : 'rotate-0'}`}>
-          <TabChevronIcon />
-        </span>
-      </button>
-    </div>
+        {/* ── COLLAPSED TAB ───────────────────────────────── */}
+        <button
+          onClick={() => setIsOpen(v => !v)}
+          onMouseEnter={() => setIsHovered(true)}
+          onMouseLeave={() => setIsHovered(false)}
+          className={isOpen ? '' : 'bella-widget-collapsed'}
+          aria-label="Open Bella AI"
+          style={{
+            display: 'flex', alignItems: 'center', gap: '12px',
+            padding: '14px 20px', borderRadius: '18px', border: 'none', cursor: 'pointer',
+            background: 'rgba(10, 8, 20, 0.82)',
+            backdropFilter: 'blur(20px)',
+            WebkitBackdropFilter: 'blur(20px)',
+            border: '1px solid rgba(139,92,246,0.35)',
+            boxShadow: isOpen
+              ? '0 4px 20px rgba(0,0,0,0.3)'
+              : '0 8px 32px rgba(0,0,0,0.35)',
+            transition: 'all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1)',
+            width: isOpen ? '100%' : 'auto',
+            justifyContent: isOpen ? 'space-between' : 'flex-start',
+          } as React.CSSProperties}
+        >
+          {/* Icon */}
+          <div style={{
+            width: '36px', height: '36px', borderRadius: '10px', flexShrink: 0,
+            background: 'linear-gradient(135deg, #7c3aed, #4f46e5)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            boxShadow: '0 0 14px rgba(124,58,237,0.5)',
+          }}>
+            <NeuralIcon />
+          </div>
+
+          {/* Text */}
+          <div style={{ textAlign: 'left' }}>
+            <div style={{ fontSize: '13px', fontWeight: 700, color: '#f5f3ff', letterSpacing: '0.01em', lineHeight: 1 }}>
+              Bella AI
+            </div>
+            <div style={{ fontSize: '11px', color: 'rgba(167,139,250,0.7)', marginTop: '3px' }}>
+              {isOpen ? 'Tap to minimise' : 'What are we feeling today?'}
+            </div>
+          </div>
+
+          {/* Chevron */}
+          <div style={{
+            marginLeft: 'auto',
+            color: 'rgba(167,139,250,0.6)',
+            transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+            transition: 'transform 0.3s ease',
+            display: 'flex',
+          }}>
+            <ChevronUpIcon />
+          </div>
+        </button>
+      </div>
+    </>
   )
 }
 
 /* ── Icons ──────────────────────────────────────────────── */
 
-function SparkleIcon({ small }: { small?: boolean }) {
-  const size = small ? 13 : 16
+function NeuralIcon() {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="#1A1A1A" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6z" />
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="3" />
+      <circle cx="4" cy="6" r="2" />
+      <circle cx="20" cy="6" r="2" />
+      <circle cx="4" cy="18" r="2" />
+      <circle cx="20" cy="18" r="2" />
+      <line x1="6" y1="6" x2="10" y2="10" />
+      <line x1="18" y1="6" x2="14" y2="10" />
+      <line x1="6" y1="18" x2="10" y2="14" />
+      <line x1="18" y1="18" x2="14" y2="14" />
     </svg>
   )
 }
@@ -510,22 +737,23 @@ function MinimizeIcon() {
 
 function SendIcon() {
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <line x1="22" y1="2" x2="11" y2="13" />
       <polygon points="22 2 15 22 11 13 2 9 22 2" />
     </svg>
   )
 }
 
-function ChevronIcon() {
+function CameraIcon() {
   return (
-    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-      <polyline points="9 18 15 12 9 6" />
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+      <circle cx="12" cy="13" r="4" />
     </svg>
   )
 }
 
-function TabChevronIcon() {
+function ChevronUpIcon() {
   return (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <polyline points="18 15 12 9 6 15" />
@@ -535,28 +763,10 @@ function TabChevronIcon() {
 
 function PlaceholderIcon() {
   return (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
       <rect x="3" y="3" width="18" height="18" rx="2" />
       <circle cx="8.5" cy="8.5" r="1.5" />
       <polyline points="21 15 16 10 5 21" />
-    </svg>
-  )
-}
-
-function CameraIcon() {
-  return (
-    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
-      <circle cx="12" cy="13" r="4" />
-    </svg>
-  )
-}
-
-function RemoveIcon() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-      <line x1="18" y1="6" x2="6" y2="18" />
-      <line x1="6" y1="6" x2="18" y2="18" />
     </svg>
   )
 }
