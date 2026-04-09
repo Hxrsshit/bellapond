@@ -51,6 +51,75 @@ function lookupProduct(name: string) {
   return PRODUCT_META[name.trim().toLowerCase()] ?? null
 }
 
+// Parse [Product Name] tokens in assistant text → inline image chips
+function renderMessageContent(text: string, isTyping: boolean) {
+  const parts = text.split(/(\[[^\]]+\])/g)
+  return (
+    <>
+      {parts.map((part, i) => {
+        const match = part.match(/^\[([^\]]+)\]$/)
+        if (match) {
+          const name = match[1]
+          const meta = lookupProduct(name)
+          if (meta) {
+            return (
+              <Link
+                key={i}
+                href={`/products/${meta.id}`}
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: '6px',
+                  verticalAlign: 'middle', margin: '0 3px',
+                  padding: '3px 8px 3px 3px',
+                  borderRadius: '20px',
+                  background: 'rgba(212,175,55,0.12)',
+                  border: '1px solid rgba(212,175,55,0.3)',
+                  textDecoration: 'none',
+                  transition: 'all 0.2s',
+                  cursor: 'pointer',
+                }}
+                onMouseEnter={e => {
+                  const el = e.currentTarget as HTMLAnchorElement
+                  el.style.background = 'rgba(212,175,55,0.22)'
+                  el.style.borderColor = 'rgba(212,175,55,0.55)'
+                  el.style.boxShadow = '0 0 12px rgba(212,175,55,0.2)'
+                }}
+                onMouseLeave={e => {
+                  const el = e.currentTarget as HTMLAnchorElement
+                  el.style.background = 'rgba(212,175,55,0.12)'
+                  el.style.borderColor = 'rgba(212,175,55,0.3)'
+                  el.style.boxShadow = 'none'
+                }}
+              >
+                <div style={{
+                  width: '22px', height: '22px', borderRadius: '50%', overflow: 'hidden',
+                  flexShrink: 0, background: 'rgba(255,255,255,0.08)',
+                  border: '1px solid rgba(212,175,55,0.2)', position: 'relative',
+                }}>
+                  <Image src={meta.image} alt={name} fill className="object-cover" sizes="22px" />
+                </div>
+                <span style={{ fontSize: '11px', fontWeight: 600, color: '#ffd700', whiteSpace: 'nowrap' }}>
+                  {name}
+                </span>
+              </Link>
+            )
+          }
+          // product not in meta map — render as plain bold text
+          return <strong key={i} style={{ color: '#ffd700' }}>{name}</strong>
+        }
+        return <span key={i}>{part}</span>
+      })}
+      {isTyping && (
+        <span style={{
+          display: 'inline-block', width: '2px', height: '13px',
+          background: 'rgba(212,175,55,0.8)', marginLeft: '2px',
+          verticalAlign: 'middle', borderRadius: '1px',
+          animation: 'bellaCursor 0.8s step-end infinite',
+        }} />
+      )}
+    </>
+  )
+}
+
 export default function ChatWidget() {
   const [isOpen, setIsOpen]               = useState(false)
   const [messages, setMessages]           = useState<Message[]>([
@@ -208,13 +277,27 @@ export default function ChatWidget() {
           50% { transform: translateY(-6px); }
         }
         @keyframes bellaPulse {
-          0%, 100% { box-shadow: 0 0 0 0 rgba(139,92,246,0.4), 0 8px 32px rgba(0,0,0,0.35); }
-          50% { box-shadow: 0 0 0 8px rgba(139,92,246,0), 0 8px 32px rgba(0,0,0,0.35); }
+          0%, 100% { box-shadow: 0 0 0 0 rgba(212,175,55,0.5), 0 8px 32px rgba(0,0,0,0.5); }
+          50% { box-shadow: 0 0 0 10px rgba(212,175,55,0), 0 8px 32px rgba(0,0,0,0.5); }
         }
         @keyframes bellaGradientBorder {
           0% { background-position: 0% 50%; }
           50% { background-position: 100% 50%; }
           100% { background-position: 0% 50%; }
+        }
+        @keyframes bellaStars {
+          0% { opacity: 0.2; transform: scale(1); }
+          50% { opacity: 0.8; transform: scale(1.2); }
+          100% { opacity: 0.2; transform: scale(1); }
+        }
+        @keyframes bellaAurora {
+          0%, 100% { opacity: 0.4; transform: translate(0,0) scale(1); }
+          33% { opacity: 0.7; transform: translate(15px,-10px) scale(1.1); }
+          66% { opacity: 0.3; transform: translate(-10px,8px) scale(0.95); }
+        }
+        @keyframes bellaShimmer {
+          0% { background-position: -200% center; }
+          100% { background-position: 200% center; }
         }
         @keyframes bellaDot {
           0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
@@ -238,20 +321,15 @@ export default function ChatWidget() {
         }
         .bella-widget-collapsed:hover {
           animation: none;
-          box-shadow: 0 0 0 2px rgba(139,92,246,0.6), 0 0 24px rgba(139,92,246,0.4), 0 8px 32px rgba(0,0,0,0.4) !important;
+          box-shadow: 0 0 0 2px rgba(212,175,55,0.7), 0 0 32px rgba(212,175,55,0.35), 0 8px 32px rgba(0,0,0,0.5) !important;
           transform: scale(1.03);
         }
         .bella-gradient-border {
-          background: linear-gradient(135deg, rgba(139,92,246,0.8), rgba(59,130,246,0.8), rgba(236,72,153,0.6), rgba(139,92,246,0.8));
+          background: linear-gradient(90deg, #b8860b, #ffd700, #f5deb3, #daa520, #fffacd, #b8860b);
           background-size: 300% 300%;
-          animation: bellaGradientBorder 4s ease infinite;
+          animation: bellaGradientBorder 3s ease infinite;
         }
-        .bella-cursor::after {
-          content: '|';
-          animation: bellaCursor 0.8s step-end infinite;
-          color: rgba(167,139,250,0.9);
-          margin-left: 1px;
-        }
+        /* bella-cursor is now rendered as an inline element in renderMessageContent */
         .bella-msg-in {
           animation: bellaFadeUp 0.3s ease forwards;
         }
@@ -263,17 +341,18 @@ export default function ChatWidget() {
         .bella-dot-3 { animation: bellaDot 1.4s ease-in-out 0.4s infinite; }
         ::-webkit-scrollbar { width: 4px; }
         ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: rgba(139,92,246,0.3); border-radius: 2px; }
+        ::-webkit-scrollbar-thumb { background: rgba(212,175,55,0.25); border-radius: 2px; }
       `}</style>
 
       <div style={{
         position: 'fixed',
         bottom: '24px',
-        right: '24px',
+        left: '50%',
+        transform: 'translateX(-50%)',
         zIndex: 9999,
         display: 'flex',
         flexDirection: 'column',
-        alignItems: 'flex-end',
+        alignItems: 'center',
         gap: '12px',
         fontFamily: "'Inter', -apple-system, sans-serif",
       }}>
@@ -290,11 +369,11 @@ export default function ChatWidget() {
           flexDirection: 'column',
           borderRadius: '20px',
           overflow: 'hidden',
-          background: 'rgba(10, 8, 20, 0.82)',
-          backdropFilter: 'blur(20px)',
-          WebkitBackdropFilter: 'blur(20px)',
-          border: '1px solid rgba(139,92,246,0.25)',
-          boxShadow: '0 8px 32px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.05), inset 0 1px 0 rgba(255,255,255,0.08)',
+          background: 'rgba(5, 4, 12, 0.88)',
+          backdropFilter: 'blur(24px)',
+          WebkitBackdropFilter: 'blur(24px)',
+          border: '1px solid rgba(212,175,55,0.2)',
+          boxShadow: '0 8px 40px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.04), inset 0 1px 0 rgba(212,175,55,0.08), 0 0 60px rgba(212,175,55,0.04)',
         }}>
 
           {/* Gradient border top */}
@@ -307,17 +386,24 @@ export default function ChatWidget() {
             flexShrink: 0,
             overflow: 'hidden',
           }}>
-            {/* Ambient orbs */}
+            {/* Galaxy aurora orbs */}
             <div className="bella-orb" style={{
-              position: 'absolute', top: '-20px', right: '-20px',
-              width: '100px', height: '100px', borderRadius: '50%',
-              background: 'radial-gradient(circle, rgba(139,92,246,0.25) 0%, transparent 70%)',
+              position: 'absolute', top: '-20px', right: '-10px',
+              width: '120px', height: '120px', borderRadius: '50%',
+              background: 'radial-gradient(circle, rgba(212,175,55,0.2) 0%, rgba(184,134,11,0.08) 50%, transparent 70%)',
               pointerEvents: 'none',
             }} />
-            <div style={{
-              position: 'absolute', bottom: '-30px', left: '20px',
+            <div className="bella-orb" style={{
+              position: 'absolute', top: '-10px', left: '30%',
               width: '80px', height: '80px', borderRadius: '50%',
-              background: 'radial-gradient(circle, rgba(59,130,246,0.15) 0%, transparent 70%)',
+              background: 'radial-gradient(circle, rgba(255,255,255,0.06) 0%, transparent 70%)',
+              pointerEvents: 'none',
+              animationDelay: '2s',
+            }} />
+            <div style={{
+              position: 'absolute', bottom: '-20px', left: '10px',
+              width: '90px', height: '90px', borderRadius: '50%',
+              background: 'radial-gradient(circle, rgba(218,165,32,0.12) 0%, transparent 70%)',
               pointerEvents: 'none',
             }} />
 
@@ -325,21 +411,28 @@ export default function ChatWidget() {
               {/* Avatar */}
               <div style={{
                 width: '38px', height: '38px', borderRadius: '12px', flexShrink: 0,
-                background: 'linear-gradient(135deg, #7c3aed, #4f46e5)',
+                background: 'linear-gradient(135deg, #b8860b, #daa520, #ffd700)',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
-                boxShadow: '0 0 16px rgba(124,58,237,0.5)',
+                boxShadow: '0 0 20px rgba(212,175,55,0.5), 0 0 40px rgba(212,175,55,0.15)',
               }}>
                 <NeuralIcon />
               </div>
               <div style={{ flex: 1 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span style={{ fontSize: '14px', fontWeight: 700, color: '#f5f3ff', letterSpacing: '0.01em' }}>
+                  <span style={{
+                    fontSize: '14px', fontWeight: 700, letterSpacing: '0.01em',
+                    background: 'linear-gradient(90deg, #ffd700, #f5deb3, #daa520)',
+                    backgroundSize: '200% auto',
+                    WebkitBackgroundClip: 'text',
+                    WebkitTextFillColor: 'transparent',
+                    animation: 'bellaShimmer 3s linear infinite',
+                  }}>
                     Bella AI
                   </span>
                   <span style={{
                     fontSize: '10px', fontWeight: 600, padding: '2px 7px', borderRadius: '20px',
-                    background: 'rgba(139,92,246,0.2)', color: '#a78bfa',
-                    border: '1px solid rgba(139,92,246,0.3)', letterSpacing: '0.05em',
+                    background: 'rgba(212,175,55,0.12)', color: '#daa520',
+                    border: '1px solid rgba(212,175,55,0.3)', letterSpacing: '0.05em',
                   }}>SKINCARE</span>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '5px', marginTop: '2px' }}>
@@ -349,7 +442,7 @@ export default function ChatWidget() {
                     boxShadow: '0 0 6px #34d399',
                     display: 'inline-block',
                   }} />
-                  <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.45)', letterSpacing: '0.03em' }}>
+                  <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', letterSpacing: '0.03em' }}>
                     Online · Science-backed advisor
                   </span>
                 </div>
@@ -387,7 +480,7 @@ export default function ChatWidget() {
                 {msg.role === 'user' && msg.imagePreview && (
                   <div style={{
                     width: '120px', height: '120px', borderRadius: '12px', overflow: 'hidden',
-                    marginBottom: '6px', border: '1px solid rgba(139,92,246,0.3)',
+                    marginBottom: '6px', border: '1px solid rgba(212,175,55,0.25)',
                   }}>
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={msg.imagePreview} alt="Skin photo" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
@@ -396,39 +489,36 @@ export default function ChatWidget() {
 
                 {/* Bubble */}
                 <div style={{
-                  maxWidth: '85%',
+                  maxWidth: msg.role === 'user' ? '85%' : '100%',
                   padding: '10px 14px',
                   borderRadius: msg.role === 'user' ? '16px 16px 4px 16px' : '16px 16px 16px 4px',
-                  fontSize: '13px', lineHeight: '1.6',
-                  whiteSpace: 'pre-wrap',
+                  fontSize: '13px', lineHeight: '1.7',
                   ...(msg.role === 'user' ? {
-                    background: 'linear-gradient(135deg, #7c3aed, #4f46e5)',
+                    background: 'linear-gradient(135deg, #92680a, #b8860b, #daa520)',
                     color: '#fff',
-                    boxShadow: '0 4px 15px rgba(124,58,237,0.35)',
+                    boxShadow: '0 4px 15px rgba(184,134,11,0.4)',
+                    whiteSpace: 'pre-wrap',
                   } : {
                     background: 'rgba(255,255,255,0.06)',
-                    color: 'rgba(255,255,255,0.88)',
+                    color: 'rgba(255,255,255,0.85)',
                     border: '1px solid rgba(255,255,255,0.08)',
                     width: '100%',
                   }),
                 }}>
-                  {msg.role === 'assistant' ? (
-                    <span className={msg.isTyping ? 'bella-cursor' : ''}>
-                      {msg.displayContent ?? msg.content}
-                    </span>
-                  ) : (
-                    msg.displayContent ?? msg.content
-                  )}
+                  {msg.role === 'assistant'
+                    ? renderMessageContent(msg.displayContent ?? msg.content, !!msg.isTyping)
+                    : (msg.displayContent ?? msg.content)
+                  }
                 </div>
 
                 {/* Skin analysis badge */}
                 {msg.role === 'assistant' && msg.skinAnalysis && !msg.isTyping && (
                   <div style={{
                     marginTop: '8px', padding: '10px 12px', borderRadius: '12px', width: '100%',
-                    background: 'rgba(139,92,246,0.1)', border: '1px solid rgba(139,92,246,0.25)',
-                    fontSize: '11px', color: 'rgba(167,139,250,0.9)', lineHeight: '1.5',
+                    background: 'rgba(212,175,55,0.08)', border: '1px solid rgba(212,175,55,0.2)',
+                    fontSize: '11px', color: 'rgba(218,165,32,0.9)', lineHeight: '1.5',
                   }}>
-                    <div style={{ fontWeight: 700, marginBottom: '3px', letterSpacing: '0.05em', fontSize: '10px', color: '#a78bfa' }}>
+                    <div style={{ fontWeight: 700, marginBottom: '3px', letterSpacing: '0.05em', fontSize: '10px', color: '#daa520' }}>
                       SKIN ANALYSIS
                     </div>
                     {msg.skinAnalysis}
@@ -438,7 +528,7 @@ export default function ChatWidget() {
                 {/* Product cards */}
                 {msg.role === 'assistant' && msg.products && msg.products.length > 0 && !msg.isTyping && (
                   <div style={{ marginTop: '10px', width: '100%', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.1em', color: 'rgba(167,139,250,0.7)', textTransform: 'uppercase' }}>
+                    <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.1em', color: 'rgba(218,165,32,0.7)', textTransform: 'uppercase' }}>
                       Recommended for you
                     </div>
                     {msg.products.map((product, pi) => {
@@ -455,8 +545,8 @@ export default function ChatWidget() {
                         }}
                         onMouseEnter={e => {
                           const el = e.currentTarget as HTMLAnchorElement
-                          el.style.background = 'rgba(139,92,246,0.12)'
-                          el.style.borderColor = 'rgba(139,92,246,0.35)'
+                          el.style.background = 'rgba(212,175,55,0.1)'
+                          el.style.borderColor = 'rgba(212,175,55,0.3)'
                           el.style.boxShadow = '0 0 16px rgba(139,92,246,0.15)'
                         }}
                         onMouseLeave={e => {
@@ -486,10 +576,10 @@ export default function ChatWidget() {
                               {product.category}
                             </div>
                             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '4px' }}>
-                              <span style={{ fontSize: '13px', fontWeight: 700, color: '#a78bfa' }}>
+                              <span style={{ fontSize: '13px', fontWeight: 700, color: '#daa520' }}>
                                 ${Number(product.price).toFixed(2)}
                               </span>
-                              <span style={{ fontSize: '10px', color: 'rgba(167,139,250,0.6)', display: 'flex', alignItems: 'center', gap: '2px' }}>
+                              <span style={{ fontSize: '10px', color: 'rgba(218,165,32,0.6)', display: 'flex', alignItems: 'center', gap: '2px' }}>
                                 View →
                               </span>
                             </div>
@@ -513,7 +603,7 @@ export default function ChatWidget() {
                   {[0,1,2].map(i => (
                     <span key={i} className={`bella-dot-${i+1}`} style={{
                       width: '7px', height: '7px', borderRadius: '50%',
-                      background: 'rgba(139,92,246,0.8)', display: 'inline-block',
+                      background: 'rgba(212,175,55,0.75)', display: 'inline-block',
                     }} />
                   ))}
                 </div>
@@ -542,18 +632,18 @@ export default function ChatWidget() {
               {SUGGESTED_QUESTIONS.map(q => (
                 <button key={q} onClick={() => sendMessage(q)} style={{
                   fontSize: '11px', padding: '6px 12px', borderRadius: '20px', cursor: 'pointer',
-                  background: 'rgba(139,92,246,0.1)', border: '1px solid rgba(139,92,246,0.25)',
-                  color: 'rgba(167,139,250,0.9)', transition: 'all 0.2s', letterSpacing: '0.01em',
+                  background: 'rgba(212,175,55,0.08)', border: '1px solid rgba(212,175,55,0.2)',
+                  color: 'rgba(218,165,32,0.9)', transition: 'all 0.2s', letterSpacing: '0.01em',
                 }}
                 onMouseEnter={e => {
                   const el = e.currentTarget as HTMLButtonElement
-                  el.style.background = 'rgba(139,92,246,0.25)'
-                  el.style.borderColor = 'rgba(139,92,246,0.5)'
+                  el.style.background = 'rgba(212,175,55,0.2)'
+                  el.style.borderColor = 'rgba(212,175,55,0.4)'
                 }}
                 onMouseLeave={e => {
                   const el = e.currentTarget as HTMLButtonElement
-                  el.style.background = 'rgba(139,92,246,0.1)'
-                  el.style.borderColor = 'rgba(139,92,246,0.25)'
+                  el.style.background = 'rgba(212,175,55,0.08)'
+                  el.style.borderColor = 'rgba(212,175,55,0.2)'
                 }}>
                   {q}
                 </button>
@@ -565,13 +655,13 @@ export default function ChatWidget() {
           {imagePreview && (
             <div style={{
               margin: '0 16px 8px', padding: '8px 10px', borderRadius: '12px',
-              background: 'rgba(139,92,246,0.08)', border: '1px solid rgba(139,92,246,0.2)',
+              background: 'rgba(212,175,55,0.06)', border: '1px solid rgba(212,175,55,0.15)',
               display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0,
             }}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={imagePreview} alt="Preview" style={{ width: '40px', height: '40px', borderRadius: '8px', objectFit: 'cover', flexShrink: 0 }} />
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: '11px', color: 'rgba(167,139,250,0.9)', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                <div style={{ fontSize: '11px', color: 'rgba(218,165,32,0.9)', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {imageFile?.name}
                 </div>
                 <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.3)', marginTop: '1px' }}>
@@ -597,9 +687,9 @@ export default function ChatWidget() {
               {/* Camera */}
               <button type="button" onClick={() => fileInputRef.current?.click()} disabled={loading} style={{
                 width: '38px', height: '38px', borderRadius: '11px', border: 'none', cursor: 'pointer', flexShrink: 0,
-                background: imagePreview ? 'rgba(139,92,246,0.25)' : 'rgba(255,255,255,0.06)',
-                border: imagePreview ? '1px solid rgba(139,92,246,0.5)' : '1px solid rgba(255,255,255,0.08)',
-                color: imagePreview ? '#a78bfa' : 'rgba(255,255,255,0.4)',
+                background: imagePreview ? 'rgba(212,175,55,0.2)' : 'rgba(255,255,255,0.06)',
+                border: imagePreview ? '1px solid rgba(212,175,55,0.4)' : '1px solid rgba(255,255,255,0.08)',
+                color: imagePreview ? '#daa520' : 'rgba(255,255,255,0.4)',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 transition: 'all 0.2s',
               } as React.CSSProperties}>
@@ -624,8 +714,8 @@ export default function ChatWidget() {
                 } as React.CSSProperties}
                 onFocus={e => {
                   e.currentTarget.style.background = 'rgba(255,255,255,0.09)'
-                  e.currentTarget.style.borderColor = 'rgba(139,92,246,0.5)'
-                  e.currentTarget.style.boxShadow = '0 0 0 3px rgba(139,92,246,0.1)'
+                  e.currentTarget.style.borderColor = 'rgba(212,175,55,0.4)'
+                  e.currentTarget.style.boxShadow = '0 0 0 3px rgba(212,175,55,0.08)'
                 }}
                 onBlur={e => {
                   e.currentTarget.style.background = 'rgba(255,255,255,0.06)'
@@ -639,11 +729,11 @@ export default function ChatWidget() {
                 width: '38px', height: '38px', borderRadius: '11px', border: 'none', cursor: 'pointer', flexShrink: 0,
                 background: (!input.trim() && !imagePreview) || loading
                   ? 'rgba(255,255,255,0.06)'
-                  : 'linear-gradient(135deg, #7c3aed, #4f46e5)',
+                  : 'linear-gradient(135deg, #92680a, #b8860b, #daa520)',
                 color: (!input.trim() && !imagePreview) || loading ? 'rgba(255,255,255,0.25)' : '#fff',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 transition: 'all 0.2s',
-                boxShadow: (!input.trim() && !imagePreview) || loading ? 'none' : '0 4px 15px rgba(124,58,237,0.4)',
+                boxShadow: (!input.trim() && !imagePreview) || loading ? 'none' : '0 4px 20px rgba(184,134,11,0.5)',
               }}>
                 <SendIcon />
               </button>
@@ -661,13 +751,13 @@ export default function ChatWidget() {
           style={{
             display: 'flex', alignItems: 'center', gap: '12px',
             padding: '14px 20px', borderRadius: '18px', border: 'none', cursor: 'pointer',
-            background: 'rgba(10, 8, 20, 0.82)',
-            backdropFilter: 'blur(20px)',
-            WebkitBackdropFilter: 'blur(20px)',
-            border: '1px solid rgba(139,92,246,0.35)',
+            background: 'rgba(5, 4, 12, 0.88)',
+            backdropFilter: 'blur(24px)',
+            WebkitBackdropFilter: 'blur(24px)',
+            border: '1px solid rgba(212,175,55,0.25)',
             boxShadow: isOpen
-              ? '0 4px 20px rgba(0,0,0,0.3)'
-              : '0 8px 32px rgba(0,0,0,0.35)',
+              ? '0 4px 20px rgba(0,0,0,0.4), inset 0 1px 0 rgba(212,175,55,0.06)'
+              : '0 8px 32px rgba(0,0,0,0.5), 0 0 20px rgba(212,175,55,0.1)',
             transition: 'all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1)',
             width: isOpen ? '100%' : 'auto',
             justifyContent: isOpen ? 'space-between' : 'flex-start',
@@ -676,19 +766,26 @@ export default function ChatWidget() {
           {/* Icon */}
           <div style={{
             width: '36px', height: '36px', borderRadius: '10px', flexShrink: 0,
-            background: 'linear-gradient(135deg, #7c3aed, #4f46e5)',
+            background: 'linear-gradient(135deg, #92680a, #b8860b, #daa520)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            boxShadow: '0 0 14px rgba(124,58,237,0.5)',
+            boxShadow: '0 0 20px rgba(212,175,55,0.55)',
           }}>
             <NeuralIcon />
           </div>
 
           {/* Text */}
           <div style={{ textAlign: 'left' }}>
-            <div style={{ fontSize: '13px', fontWeight: 700, color: '#f5f3ff', letterSpacing: '0.01em', lineHeight: 1 }}>
+            <div style={{
+              fontSize: '13px', fontWeight: 700, letterSpacing: '0.02em', lineHeight: 1,
+              background: 'linear-gradient(90deg, #ffd700, #fffacd, #daa520)',
+              backgroundSize: '200% auto',
+              WebkitBackgroundClip: 'text',
+              WebkitTextFillColor: 'transparent',
+              animation: 'bellaShimmer 3s linear infinite',
+            }}>
               Bella AI
             </div>
-            <div style={{ fontSize: '11px', color: 'rgba(167,139,250,0.7)', marginTop: '3px' }}>
+            <div style={{ fontSize: '11px', color: 'rgba(218,165,32,0.7)', marginTop: '3px' }}>
               {isOpen ? 'Tap to minimise' : 'What are we feeling today?'}
             </div>
           </div>
@@ -696,7 +793,7 @@ export default function ChatWidget() {
           {/* Chevron */}
           <div style={{
             marginLeft: 'auto',
-            color: 'rgba(167,139,250,0.6)',
+            color: 'rgba(218,165,32,0.6)',
             transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)',
             transition: 'transform 0.3s ease',
             display: 'flex',
