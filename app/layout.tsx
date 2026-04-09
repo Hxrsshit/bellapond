@@ -5,6 +5,7 @@ import { CartProvider } from '@/context/CartContext'
 import Navbar from '@/components/Navbar'
 import Footer from '@/components/Footer'
 import CartDrawer from '@/components/CartDrawer'
+import ChatWidget from '@/components/ChatWidget'
 
 const inter = Inter({
   subsets: ['latin'],
@@ -42,6 +43,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <CartDrawer />
           <main className="flex-1">{children}</main>
           <Footer />
+          <ChatWidget />
         </CartProvider>
       </body>
     </html>
