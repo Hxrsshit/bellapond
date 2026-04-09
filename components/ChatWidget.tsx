@@ -3,9 +3,11 @@
 import { useState, useRef, useEffect } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
+import { useAuth } from '@/context/AuthContext'
+import LoginModal from '@/components/LoginModal'
 
-const RECOBOT_URL = process.env.NEXT_PUBLIC_RECOBOT_URL || 'http://localhost:8000'
-const BRAND_ID = 'bellapond'
+const BRAND_ID    = 'bellapond'
+const FREE_LIMIT  = 3   // messages before login gate
 
 interface Message {
   role: 'user' | 'assistant'
@@ -121,7 +123,11 @@ function renderMessageContent(text: string, isTyping: boolean) {
 }
 
 export default function ChatWidget() {
+  const { user, signOut }                 = useAuth()
   const [isOpen, setIsOpen]               = useState(false)
+  const [showLogin, setShowLogin]         = useState(false)
+  const [userMsgCount, setUserMsgCount]   = useState(0)
+  const [conversationId, setConversationId] = useState<string | null>(null)
   const [messages, setMessages]           = useState<Message[]>([
     {
       role: 'assistant',
@@ -212,6 +218,12 @@ export default function ChatWidget() {
     const hasImage = !!imageFile
     if ((!trimmed && !hasImage) || loading) return
 
+    // Gate: show login modal after FREE_LIMIT messages for non-logged-in users
+    if (!user && userMsgCount >= FREE_LIMIT) {
+      setShowLogin(true)
+      return
+    }
+
     const currentFile    = imageFile
     const currentPreview = imagePreview
 
@@ -225,23 +237,31 @@ export default function ChatWidget() {
       displayContent: trimmed || '(skin photo)',
       imagePreview: currentPreview ?? undefined,
     }])
+    setUserMsgCount(prev => prev + 1)
     setLoading(true)
 
     try {
       const image_base64 = currentFile ? await compressImage(currentFile) : undefined
-      const res = await fetch(`${RECOBOT_URL}/api/chat/`, {
+      // Route through Next.js API (handles auth + Supabase saving)
+      const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           message: trimmed || 'Analyze my skin from this photo and recommend the best products.',
           brand_id: BRAND_ID,
           conversation_history: buildHistory(),
+          conversation_id: conversationId,
           ...(image_base64 ? { image_base64 } : {}),
         }),
       })
 
       if (!res.ok) throw new Error(`Server error: ${res.status}`)
       const data = await res.json()
+
+      // Persist conversation_id for subsequent messages
+      if (data.conversation_id && !conversationId) {
+        setConversationId(data.conversation_id)
+      }
 
       const newMsgIndex = messages.length + 1
       setMessages(prev => [...prev, {
@@ -447,6 +467,27 @@ export default function ChatWidget() {
                   </span>
                 </div>
               </div>
+                      {/* User avatar or sign-in nudge */}
+              {user ? (
+                <button onClick={() => signOut()} title="Sign out" style={{
+                  width: '28px', height: '28px', borderRadius: '50%', border: 'none', cursor: 'pointer',
+                  background: 'linear-gradient(135deg, #92680a, #daa520)',
+                  color: '#000', fontSize: '11px', fontWeight: 700, flexShrink: 0,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  boxShadow: '0 0 10px rgba(212,175,55,0.4)',
+                }}>
+                  {(user.user_metadata?.full_name || user.email || 'U')[0].toUpperCase()}
+                </button>
+              ) : (
+                <button onClick={() => setShowLogin(true)} style={{
+                  fontSize: '10px', fontWeight: 600, padding: '4px 8px', borderRadius: '8px',
+                  border: '1px solid rgba(212,175,55,0.3)', background: 'rgba(212,175,55,0.08)',
+                  color: '#daa520', cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0,
+                }}>
+                  Sign in
+                </button>
+              )}
+
               {/* Minimize */}
               <button onClick={() => setIsOpen(false)} style={{
                 width: '28px', height: '28px', borderRadius: '8px', border: 'none', cursor: 'pointer',
@@ -618,6 +659,23 @@ export default function ChatWidget() {
                 color: 'rgba(252,165,165,0.9)', lineHeight: 1.5,
               }}>
                 {error}
+              </div>
+            )}
+
+            {/* Soft gate nudge — shows at 2 messages, hard gate at 3 */}
+            {!user && userMsgCount === FREE_LIMIT - 1 && (
+              <div style={{
+                padding: '10px 14px', borderRadius: '14px', fontSize: '12px',
+                background: 'rgba(212,175,55,0.08)', border: '1px solid rgba(212,175,55,0.2)',
+                color: 'rgba(218,165,32,0.9)', lineHeight: 1.5, textAlign: 'center',
+              }}>
+                1 free message left ✨{' '}
+                <button onClick={() => setShowLogin(true)} style={{
+                  background: 'none', border: 'none', color: '#ffd700',
+                  fontWeight: 700, cursor: 'pointer', fontSize: '12px', padding: 0,
+                }}>
+                  Sign in for unlimited
+                </button>
               </div>
             )}
 
@@ -802,6 +860,14 @@ export default function ChatWidget() {
           </div>
         </button>
       </div>
+
+      {/* Login Modal */}
+      {showLogin && (
+        <LoginModal
+          messageCount={userMsgCount}
+          onClose={() => setShowLogin(false)}
+        />
+      )}
     </>
   )
 }
