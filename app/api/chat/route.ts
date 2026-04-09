@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@supabase/ssr'
+import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 
 const RECOBOT_URL = process.env.RECOBOT_URL || process.env.NEXT_PUBLIC_RECOBOT_URL || 'http://localhost:8000'
@@ -10,7 +10,7 @@ export async function POST(request: Request) {
 
   // ── 1. Get current user (if logged in) ──────────────────
   const cookieStore = await cookies()
-  const supabase = createClient(
+  const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {

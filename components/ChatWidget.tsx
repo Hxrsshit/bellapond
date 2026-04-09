@@ -744,7 +744,7 @@ export default function ChatWidget() {
             <form onSubmit={handleSubmit} style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
               {/* Camera */}
               <button type="button" onClick={() => fileInputRef.current?.click()} disabled={loading} style={{
-                width: '38px', height: '38px', borderRadius: '11px', border: 'none', cursor: 'pointer', flexShrink: 0,
+                width: '38px', height: '38px', borderRadius: '11px', cursor: 'pointer', flexShrink: 0,
                 background: imagePreview ? 'rgba(212,175,55,0.2)' : 'rgba(255,255,255,0.06)',
                 border: imagePreview ? '1px solid rgba(212,175,55,0.4)' : '1px solid rgba(255,255,255,0.08)',
                 color: imagePreview ? '#daa520' : 'rgba(255,255,255,0.4)',
@@ -764,7 +764,7 @@ export default function ChatWidget() {
                 placeholder={imagePreview ? 'Describe your concern (optional)…' : 'Tell me what you\'re looking for…'}
                 disabled={loading}
                 style={{
-                  flex: 1, height: '38px', borderRadius: '11px', border: 'none', outline: 'none',
+                  flex: 1, height: '38px', borderRadius: '11px', outline: 'none',
                   background: 'rgba(255,255,255,0.06)',
                   border: '1px solid rgba(255,255,255,0.08)',
                   color: '#f5f3ff', fontSize: '13px', padding: '0 14px',
@@ -808,7 +808,7 @@ export default function ChatWidget() {
           aria-label="Open Bella AI"
           style={{
             display: 'flex', alignItems: 'center', gap: '12px',
-            padding: '14px 20px', borderRadius: '18px', border: 'none', cursor: 'pointer',
+            padding: '14px 20px', borderRadius: '18px', cursor: 'pointer',
             background: 'rgba(5, 4, 12, 0.88)',
             backdropFilter: 'blur(24px)',
             WebkitBackdropFilter: 'blur(24px)',
