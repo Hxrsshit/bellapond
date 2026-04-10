@@ -5,6 +5,7 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { useAuth } from '@/context/AuthContext'
 import LoginModal from '@/components/LoginModal'
+import { useAnonId } from '@/hooks/useAnonId'
 
 const BRAND_ID    = 'bellapond'
 const FREE_LIMIT  = 3   // messages before login gate
@@ -124,6 +125,7 @@ function renderMessageContent(text: string, isTyping: boolean) {
 
 export default function ChatWidget() {
   const { user, signOut }                 = useAuth()
+  const anonId                            = useAnonId()
   const [isOpen, setIsOpen]               = useState(false)
   const [showLogin, setShowLogin]         = useState(false)
   const [userMsgCount, setUserMsgCount]   = useState(0)
@@ -251,6 +253,7 @@ export default function ChatWidget() {
           brand_id: BRAND_ID,
           conversation_history: buildHistory(),
           conversation_id: conversationId,
+          anon_id: user ? null : anonId,
           ...(image_base64 ? { image_base64 } : {}),
         }),
       })
