@@ -39,7 +39,7 @@ export async function POST(request: Request) {
   // ── 2. Forward to Railway RecoBot ───────────────────────
   const recoRes = await fetch(`${RECOBOT_URL}/api/chat/`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' },
     body: JSON.stringify({ message, brand_id, conversation_history, image_base64 }),
   })
 
