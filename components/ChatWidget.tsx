@@ -142,7 +142,6 @@ export default function ChatWidget() {
   const [error, setError]                 = useState<string | null>(null)
   const [imageFile, setImageFile]         = useState<File | null>(null)
   const [imagePreview, setImagePreview]   = useState<string | null>(null)
-  const [isHovered, setIsHovered]         = useState(false)
   const bottomRef                         = useRef<HTMLDivElement>(null)
   const inputRef                          = useRef<HTMLInputElement>(null)
   const fileInputRef                      = useRef<HTMLInputElement>(null)
@@ -280,8 +279,8 @@ export default function ChatWidget() {
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : ''
       setError(msg.includes('Server error:')
-        ? `Server error — check Railway logs.`
-        : 'Could not reach Bella. Make sure the backend is running.')
+        ? `Server error — please try again in a moment.`
+        : 'Could not reach Bella. Please try again.')
     } finally {
       setLoading(false)
     }
@@ -805,8 +804,7 @@ export default function ChatWidget() {
         {/* ── COLLAPSED TAB ───────────────────────────────── */}
         <button
           onClick={() => setIsOpen(v => !v)}
-          onMouseEnter={() => setIsHovered(true)}
-          onMouseLeave={() => setIsHovered(false)}
+
           className={isOpen ? '' : 'bella-widget-collapsed'}
           aria-label="Open Bella AI"
           style={{

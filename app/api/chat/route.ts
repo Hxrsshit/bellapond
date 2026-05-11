@@ -3,6 +3,8 @@ import { createServerClient } from '@supabase/ssr'
 import { createClient } from '@supabase/supabase-js'
 import { cookies } from 'next/headers'
 
+export const maxDuration = 60 // seconds — allows Render free tier to wake up
+
 const RECOBOT_URL = process.env.RECOBOT_URL || process.env.NEXT_PUBLIC_RECOBOT_URL || 'http://localhost:8000'
 
 // Service role client — bypasses RLS for server-side writes
@@ -16,7 +18,7 @@ export async function POST(request: Request) {
   const { message, brand_id, conversation_history, image_base64, conversation_id, anon_id } = body
 
   // ── 1. Get current user (if logged in) ──────────────────
-  const cookieStore = await cookies()
+  const cookieStore = cookies()
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
